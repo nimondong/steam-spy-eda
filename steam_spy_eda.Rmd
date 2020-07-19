@@ -1,0 +1,779 @@
+---
+title: "Steam Spy Exploratory Data Analysis"
+author: "Nimon Dong"
+date: "12/8/2019"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    highlight: "tango"
+---
+``` {r, message = FALSE, echo = FALSE, warning = FALSE, results='asis'}
+# Loading package(s)
+library(tidyverse)
+library(lubridate)
+library(stringr)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+```
+### Overview
+
+My EDA was focused on Steam game data sourced from Steam Spy. Steam Spy is Steam stats service based on Web API provided by Valve and gathers data from user profile. Steam is a popular online gaming platform. I looked at game variables such as Release Date, Price, Ratings, # of Owners, Total Playtime, Median Playtime, Developers, Genre, etc.
+
+### Importing Datasets
+This is the data that I'm going to be working with for this EDA. All data was sourced from Steam Spy on 11/26/19. There are two .cvs datasets: 1) Steam dataset with game title, and other variables (Release Date, Price, Ratings, # of Owners, Total Playtime, Median Playtime, Developers, etc) and 2) genre classification of each game. 
+
+I wrangled the data in a separate R file. I'm going to directly load in the clean, tidy data here. 
+
+``` {r, message = FALSE, echo = FALSE}
+# Importing datasets
+games <- read_csv("data/processed/games_tidied.csv")
+game_genres <- read_csv("data/processed/game_genres.csv")
+```
+
+### Exploring Number of Games Released by Year
+
+Taking an initial glance at the data, I want to first see the total amount and percentage change of new games released on the Steam platform from year to year.
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+# Taking out year from date
+games <- games %>%
+  mutate(release_year = year(release_date))
+
+# Number of games released per year
+released <- games %>%
+  select(game, release_year) %>%
+  count(release_year, name = "total_released") %>%
+  na.omit() 
+
+# Since the 2019 year is not over yet, I will need to extrapolated for games released in December 2019. To do this I looked the number of games released in December over the 2004 - 2018 time period. 
+games <- games %>%
+  mutate(release_month = month(release_date))
+  
+december_released <- games %>%
+  select(game, release_month, release_year) %>%
+  filter(release_month == 12) %>%
+  count(release_year, name = "total_released") %>%
+  na.omit() 
+
+# We can see that in December of 2017 and 2018 there were almost 700 new games. With this in mind, we will extrapolate this over to 2019 December.
+released[16, 2] = released[16, 2] + 700
+
+# Calculating percentage change of new games released from year to year
+released <- released %>%
+  mutate(growth_rate = (total_released - lag(total_released))/lag(total_released))  
+```
+
+<div class = "row">
+<div class = "col-md-5">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+kable(released) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-7">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE}
+# count
+released %>%
+  ggplot(aes(release_year, total_released)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Games Released on Steam by Year") +
+  labs(x = "Year", y = "Number of Games Released")
+
+#growth rate 
+released %>%
+  ggplot(aes(release_year, growth_rate)) +
+  geom_line() +
+  ggtitle("YoY Percentage Change of Games Released on Steam by Year") +
+  labs(x = "Year", y = "Rate [%]")
+```
+</div>
+</div>
+
+#### Takeaways
+
+The first plot shows the total number of games released on the Steam platform each year from 2014 to 2019. We can see that there is an exponential increase of games every year. However, to truly unpack the insight, I looked at the change in year-over-year growth rate of new games released on Steam from 2014 to 2019. 
+
+Looking at the second plot you can see that there is a spike in the growth rate of new games released in 2006, 2009, and in 2014. These spikes are correlated to major updates to the Steam platform for both users and game developers. In 2006, Steam started approaching 3rd party publishers to release their games on the Steam platform. In 2009, Steam introduced Steam Cloud. This allowed users to store their games on Steam-owned cloud server that then could be accessed via any computer running the Steam client. In 2014, Steam's parent company, Valve, announced plans to hugely widen the number of games they allow onto Steam by approving developers directly via ended Steam GreenLight and introducing Steam Direct. 
+
+As background, during the days of Greenlight, developers pitch games to Steamers, who vote by answering the question “Would you buy this game if it were available in Steam?” If a game is popular enough, eventually Valve approve it. On Steam Direct, game developers register with Valve and, after verification, publish games to Steam, bypassing the "popularity contest" completely.
+
+<br>
+
+### Exploring Number of Games Released by Month
+
+Next, I wanted to take a closer look at new Steam game releases by month. I want to understand if there was a trend on when game developers would typically release their games on Steam. 
+
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+monthly_released <- games %>%
+  select(game, release_month) %>%
+  count(release_month, name = "total_released") %>%
+  na.omit() 
+
+# Adding extrapolated 2019 December releases (700 games)
+monthly_released[12, 2] = monthly_released[12, 2] + 700
+```
+
+<div class = "row">
+<div class = "col-md-4">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+kable(monthly_released) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-8">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+# Visualizing
+monthly_released %>%
+  ggplot(aes(release_month, total_released)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Number of Games Released on Steam by Month") +
+  labs(x = "Month", y = "Number of Games")
+```
+</div>
+</div>
+
+#### Takeaways
+
+Looking at the graph, we can see that the most amount of new games released on the Steam platform was in October. We can also see a general trend of games being released in the 4th Quarter of the year. 
+
+Now why might this be the case? Is there some reason why game developers release games in the latter half of the year? My hunch is that game developers what to release their games closer, but before, holidays such as Black Friday and Christmas. This is to take advantage that consumers are more likely to spend their money to buy their game for either themselves or others. 
+
+Another interesting observation is that there seems to be less new game releases in the month of June compared to other months of the year. A possible explanation is that many of the large game developers are revealing their games at big gaming conventions such as E3 that happen in June. Smaller game developers, that make up a good portion on Steam game may release their games in other months to avoid competition with these bigger game developers. For example, a small indie game developer wouldn't want to release their game at the same time the new Call of Duty is being announced and released the same week.
+
+<br>
+
+### Exploring Game Pricing
+
+#### How have game prices changed over 2004 - 2019?
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+avg_game_prices <- games %>%
+  group_by(release_year) %>%
+  summarise(avg_price = mean(price, na.rm = TRUE)) %>%
+  na.omit()
+```
+
+The first area I wanted to explore is the average price of Steam games have trended over the 15 year period.
+
+<div class = "row">
+<div class = "col-md-3">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+kable(avg_game_prices) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-9">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+avg_game_prices %>%  
+  ggplot(aes(release_year, avg_price)) +
+  geom_point() +
+  geom_smooth() + 
+  ggtitle("Average Price by Year") +
+  labs(x = "Year", y = "Average Price [$]")
+```
+</div>
+</div>
+
+#### Takeaways
+
+Initially, I expected the average price to be relatively the same over time. However, looking at the plot, we can see that the average prices of games have increased until 2012 and then decreases. Note, the average price of a Steam game in 2019 is about a dollar less than the average price in 2005!
+
+<br>
+
+#### Why has there been a decrease in average game price after 2012? 
+
+Next, I wanted to understand what might have caused the overall decrease in average game price starting in 2012. My hunch is that Free-to-Play games are becoming more and more popular and thus driving down average price. To test my hypothesis, I calculated the proportion of Free-to-Play games to released games and visualized my calculations on a plot.
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE}
+# Filtering for Free games
+ftp_games <- games %>%
+  group_by(release_year) %>%
+  count(price) %>%
+  filter(price == 0) %>%
+  na.omit()
+
+# Calculating proportion of Free-to-Play games to new games released by year
+ftp_games_prop <- ftp_games %>%
+  left_join(released, ftp_games, by = "release_year") %>%
+  mutate(prop = n / total_released, 
+         total = total_released) %>%
+  select(-growth_rate, -price, -total_released) %>%
+  select(release_year, n, total, prop)
+```
+
+<div class = "row">
+<div class = "col-md-4">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+kable(ftp_games_prop) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-8">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+# Visualizing
+ftp_games_prop %>% 
+  ggplot(aes(release_year, prop)) +
+  geom_point() + 
+  geom_smooth() +
+  ggtitle("Proportion of Free-to-Play Games by Year") +
+  labs(x = "Year", y = "Proportion of New Game Releases")
+```
+</div>
+</div>
+
+#### Takeaways
+
+Looking at the plot, it seems like my initial hypothesis looks to be correct. At least from personal experience, many other games that I play now-a-days are classified as a "Freemium" game. This is where a game is free of charge, however the game developers charge money for additional features, services, or virtual or physical goods (think loot boxes, in-game currency, etc.). 
+
+<br>
+
+#### Pricing Trends Facet Plot
+
+Next, I want to visualize the overall shift to lower pricing in a more in depth plot. To do this, I used a faceted plot to visualize all game prices. 
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE}
+game_price_count <- games %>%
+  group_by(release_year) %>%
+  count(price) %>%
+  filter(price < 50) %>%
+  na.omit()
+
+ggplot(game_price_count, aes(price, n)) +
+  geom_point() +
+  facet_wrap(~ release_year, nrow = 5) +
+  ggtitle("Game Prices by Year") +
+  labs(x = "Price", y = "Number of Games")
+```
+
+#### Takeaways
+
+Looking at the faceted plot, we can see that there is an overall general increase in lower priced games (priced less than $10). We can also see as the number of new released games on the Steam platform increase, the diversity in prices also increases. This wider spread in prices may indicate game developers employing different pricing strategies to better attract consumers to buy their games. Yes, free and low-priced games are becoming and more popular; however, this doesn't stop some game developers to price their games at a very high amount comparatively. 
+
+<br>
+
+### Exploring Game Genres
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE}
+# Joining genre classification with games dataset
+combined <- game_genres %>%
+  left_join(games, game_genres, by = "game")
+```
+
+#### Is there a playtime difference between genres?
+
+First, I wanted to explore if there was a large difference between average playtime of different game genres. The average playtime here is the average playtime over the past 2 week. For this EDA, I am looking at the two week timeframe from November 12th, 2019 to November 26th, 2019.
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE}
+# Finding total average playtime across all games in each genre
+playtime_by_genre <- combined %>%
+  group_by(genre) %>%
+  summarize(total_playtime = sum(avg_playtime, na.rm = TRUE))
+```
+
+<div class = "row">
+<div class = "col-md-4">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+kable(playtime_by_genre) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-8">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+# Visualizing
+playtime_by_genre %>%
+  ggplot(aes(reorder(genre, total_playtime), total_playtime)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Average Playtime by Genre") +
+  labs(x = "Genre", y = "Average Playtime (Minutes)")
+```
+</div>
+</div>
+
+#### Takeaways
+
+Overall, it seems like games under the Action and Adventure genre have much higher average playtime in the last two weeks compared to other game genres. Interestingly, Action and Adventure have the same exact play time. Is this because game that is classified as Action is also classfied as Adventure? Or is it just pure coincidence?
+
+To understand the abovementioned questions, I took a count of all the games with action and adventure genre classification.
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+# Filtering for action and adventure genre
+action_adventure <- combined %>%
+  filter(genre == "action" | genre == "adventure")
+
+# 
+action_adventure_count <- action_adventure%>%
+  count(game) %>%
+  count(n, name = "count")
+```
+
+<div class = "row">
+<div class = "col-md-2">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+kable(action_adventure_count) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-8">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+action_adventure_za <- action_adventure %>%
+  filter(game == "Zombie Apocalypse") %>%
+  select(genre, game, publishers)
+
+kable(action_adventure_za) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+</div>
+</div>
+
+Weird, there seems to be games with multiple adventure and action genres tags. Turns out, there are games by different publishers with the same names!
+
+Overall, since we can see in the column n that all the numbers are even, this means that all action genre games are also classified as adventure games. I suppose no adventure is without action in the eyes of game developers.
+
+<br>
+
+#### Is there a trend over time in game genre?
+
+Next, I wanted to see if the proportion of different game genres change over the 15 year period.
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE}
+# Counting number of releases per year for each game genre
+combined_action <- combined %>%
+  filter(genre == "action") %>%
+  count(release_year) %>%
+  na.omit 
+
+combined_action <- combined_action %>%
+  left_join(released, combined_action, by = "release_year") %>%
+  select(-growth_rate) %>%
+  mutate(genre = c("action"))
+# -------------------------------------------------------------------------
+combined_adventure <- combined %>%
+  filter(genre == "adventure") %>%
+  count(release_year) %>%
+  na.omit 
+
+combined_adventure <- combined_adventure %>%
+  left_join(released, combined_adventure, by = "release_year") %>%
+  select(-growth_rate) %>%
+  mutate(genre = c("adventure"))
+# -------------------------------------------------------------------------
+combined_early_access <- combined %>%
+  filter(genre == "early_access") %>%
+  count(release_year) %>%
+  na.omit 
+
+combined_early_access <- combined_early_access %>%
+  left_join(released, combined_early_access, by = "release_year") %>%
+  select(-growth_rate) %>%
+  mutate(genre = c("early_access"))
+# -------------------------------------------------------------------------
+combined_indie <- combined %>%
+  filter(genre == "indie") %>%
+  count(release_year) %>%
+  na.omit 
+
+combined_indie <- combined_indie %>%
+  left_join(released, combined_indie, by = "release_year") %>%
+  select(-growth_rate) %>%
+  mutate(genre = c("indie"))
+# -------------------------------------------------------------------------
+combined_mmo <- combined %>%
+  filter(genre == "mmo") %>%
+  count(release_year) %>%
+  na.omit 
+
+combined_mmo <- combined_mmo %>%
+  left_join(released, combined_mmo, by = "release_year") %>%
+  select(-growth_rate) %>%
+  mutate(genre = c("mmo"))
+# -------------------------------------------------------------------------
+combined_rpg <- combined %>%
+  filter(genre == "rpg") %>%
+  count(release_year) %>%
+  na.omit 
+
+combined_rpg <- combined_rpg %>%
+  left_join(released, combined_rpg, by = "release_year") %>%
+  select(-growth_rate) %>%
+  mutate(genre = c("rpg"))
+# -------------------------------------------------------------------------
+combined_simulation <- combined %>%
+  filter(genre == "simulation") %>%
+  count(release_year) %>%
+  na.omit 
+
+combined_simulation <- combined_simulation %>%
+  left_join(released, combined_simulation, by = "release_year") %>%
+  select(-growth_rate) %>%
+  mutate(genre = c("simulation"))
+# -------------------------------------------------------------------------
+combined_sports <- combined %>%
+  filter(genre == "sports") %>%
+  count(release_year) %>%
+  na.omit 
+
+combined_sports <- combined_sports %>%
+  left_join(released, combined_sports, by = "release_year") %>%
+  select(-growth_rate) %>%
+  mutate(genre = c("sports"))
+# -------------------------------------------------------------------------
+combined_strategy <- combined %>%
+  filter(genre == "strategy") %>%
+  count(release_year) %>%
+  na.omit 
+
+combined_strategy <- combined_strategy %>%
+  left_join(released, combined_strategy, by = "release_year") %>%
+  select(-growth_rate) %>%
+  mutate(genre = c("strategy"))
+# -------------------------------------------------------------------------
+# Combining datasets (hid code to generate each of the combined_'genre')
+genre_year_count <- rbind(combined_action,
+                          combined_adventure,
+                          combined_early_access,
+                          combined_indie,
+                          combined_mmo,
+                          combined_rpg,
+                          combined_simulation,
+                          combined_sports,
+                          combined_strategy)
+
+# Calculating proportion of genre to total released game titles
+genre_year_count <- genre_year_count %>%
+  mutate(prop = n/total_released)
+```
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE}
+# Visualizing
+ggplot(genre_year_count, aes(x = release_year, y = prop)) +
+  geom_point() +
+  geom_smooth(method = lm) +
+  facet_wrap(~ genre, nrow = 3) +
+  ggtitle("Game Release Trends in Genres") +
+  labs(x = "Year", y = "Proportion of Total Games Released")
+```
+
+#### Takeaways
+
+Looking at the faceted plot, we can see that over time, there has been a dramatic increase in indie genre games. There has been a slight increase in early_access simulation, and rpg games, while there has been a decline in strategy genre games. Action, Adventure, MMO, and Sports has relatively stayed the same. 
+
+<br>
+
+### Exploring Gaming Nostalgia 
+
+#### Is there a certain title or genre of game that has a particular nostalgia factor? What games have stood the test of time?
+
+To determine which games have a nostalgia factor, I look at the top trending games in the past two week.
+
+<div class = "row">
+<div class = "col-md-4">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+trending_games <- games %>%
+  filter(trending == "Yes") %>%
+  select(game, release_year, trending) %>%
+  na.omit() %>%
+  count(release_year, name = "number_released")
+
+kable(trending_games) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-8">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+trending_games %>%
+  ggplot(aes(release_year, number_released)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Trending Games Released on Steam by Year") +
+  labs(x = "Year", y="Number of Games Released")
+```
+</div>
+</div>
+
+I then filtered for games released pre-2010, and arranged average playtime from most to least. 
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+trending_games_pre2010 <- combined %>%
+  select(genre, game, release_year, trending, avg_playtime, metascore) %>%
+  filter(trending == "Yes", 
+         between(release_year, 2004, 2010)) %>%
+  arrange(desc(avg_playtime))
+
+kable(trending_games_pre2010) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+*Note: some games are duplicated, this is because they are classified under two genres.
+
+<br>
+
+#### Takeaways
+
+Of all the games listed above, the most surprising was *Garry's Mod*. Compared to the other games on the list, it is not a typical action/adventure first-person shooter or a classic strategy game. Instead, *Garry's Mod* is an indie-simulation game. As a physics sandbox game, there aren't even any predefined aims or goals to the game. Yet, despite its unique genre and not critically reviewed, the game is still being played 13 years after its initial release. 
+
+<br>
+
+### Exploring Metascore
+
+#### What genre are the top rated games?
+
+To have a large enough sample size to ensure a relatively accurately and widely agreed upon metascore, I filtered for games with 10M+ owners. According to the Metacritic website, anything above 80 (Green) is a pretty decent game.
+
+<div class = "row">
+<div class = "col-md-2">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+#filter to 10M+ owners for large sample size for metascore
+
+# Owners columns doens't filter directly for some reason
+owners_groups <- games %>%
+  count(owners) %>%
+  arrange(n) %>%
+  na.omit()
+
+owners_groups_10M <- filter(owners_groups, n < 40)
+
+owners_cat_10 <- owners_groups_10M$owners
+
+combined_10M <- filter(combined, owners %in% owners_cat_10)
+
+combined_10M_genre_count <- combined_10M %>%
+  arrange(desc(metascore)) %>%
+  filter(metascore > 80) %>%
+  count(genre)
+
+kable(combined_10M_genre_count) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-10">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+combined_10M_genre_count %>%
+  ggplot(aes(reorder(genre, n), n)) +
+  geom_bar(stat = "identity") +
+  ggtitle("Number of Top Rated Games (80+ Metascore) by Genre") +
+  labs(x = "Genre", y="Number of Games")
+```
+</div>
+</div>
+
+<br>
+
+#### What are the Top 10 highest rated games? 
+
+Again, to have a large enough sample size to ensure a relatively accurately and widely agreed upon metascore, I filtered for games with 10M+ owners.
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+combined_10M_distinct <- combined_10M %>%
+  select(game, metascore, avg_playtime) %>%
+  distinct() %>%
+  arrange(desc(metascore)) %>%
+  head(n = 10)
+```
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+kable(combined_10M_distinct) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+#### Takeaways
+
+Looking at the first plot, we can see that the bulk of 80+ metascore games are categorized under action and adventure. Interestingly, out of all the games in the Top 10 Highest Rated Games table, *Sid Meier’s Civilization V* is the only pure strategy genre game on the list. This may imply two conclusions: 1) developing a highly rated pure strategy game is quite hard to do and 2) developing a highly rated game doesn't have to be in the action/strategy genre. 
+
+<br>
+
+### Exploring Number of Owners
+
+#### What is the distribution of owners across Steam games?
+
+I want to identify if there are any anomalies in distribution of Steam game owners. My initial hypothesis is that the distribution will be very left skewed. This is based on the fact that developing and publishing a highly popular game is very difficult nowadays.
+
+<div class = "row">
+<div class = "col-md-4">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+owners_groups <- games %>%
+  count(owners) %>%
+  arrange(n) %>%
+  na.omit()
+
+kable(owners_groups) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-8">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+owners_groups %>%
+  ggplot(aes(reorder(owners, n), n)) +
+  geom_bar(stat = "identity") +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  ggtitle("Game Count by Number of Owners") +
+  labs(x = "Number of Owners", y="Number of Games")
+```
+</div>
+</div>
+
+#### Takeaways
+
+As noted, my hypothesis stands: the distribution of number of owners across Steam games is extremely left-skewed. Over 70% of all games on the Steam platform have between 0 and 20,000 owners. I honestly did not expect a steep drop off between games that have less than 20,000 owners and games that have 20,000+ owners. This may indicate that for many game developers and their games, achieving 20,000 owners on the Steam platform is a very tough barrier to cross. 
+
+<br>
+
+#### How does metascore relate to number of owners?
+
+I want to explore if there are any differences in metascore distributions among difffernt owner groups. 
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+owners_groups <- games %>%
+  count(owners) %>%
+  arrange(n) %>%
+  na.omit()
+
+# 20M+
+owners_groups_20M <- filter(owners_groups, n < 29)
+
+owners_cat_20 <- owners_groups_20M$owners
+
+games_20M <- filter(games, owners %in% owners_cat_20)
+
+games_20M <- games_20M %>%
+  mutate(id = c("20M+"))
+
+games_20M_sum <- games_20M  %>%
+  select(metascore) %>%
+  summary()
+
+games_20M_sum <- games_20M_sum %>%
+  as.data.frame.matrix() %>%
+  separate(`  metascore`, into = c("stats", "20M+"), sep = ":")
+
+# 10M-20M
+owners_groups_10M <- filter(owners_groups, between(n, 29, 31))
+
+owners_cat_10 <- owners_groups_10M$owners
+
+games_10M <- filter(games, owners %in% owners_cat_10)
+
+games_10M <- games_10M %>%
+  mutate(id = c("10M-20M"))
+
+games_10M_sum <- games_10M  %>%
+  select(metascore) %>%
+  summary()
+
+games_10M_sum <- games_10M_sum %>%
+  as.data.frame.matrix() %>%
+  separate(`  metascore`, into = c("stats", "10M-20M"), sep = ":")
+
+# 5-10M
+owners_groups_510M <- filter(owners_groups, between(n, 58, 60))
+
+owners_cat_510 <- owners_groups_510M$owners
+
+games_510M <- filter(games, owners %in% owners_cat_510)
+
+games_510M <- games_510M %>%
+  mutate(id = c("5M-10M"))
+
+games_510M_sum <- games_510M  %>%
+  select(metascore) %>%
+  summary()
+
+games_510M_sum <- games_510M_sum %>%
+  as.data.frame.matrix() %>%
+  separate(`  metascore`, into = c("stats", "5M-10M"), sep = ":")
+
+# 1-5M
+owners_groups_15M <- filter(owners_groups, between(n, 216, 351))
+
+owners_cat_15 <- owners_groups_15M$owners
+
+games_15M <- filter(games, owners %in% owners_cat_15)
+
+games_15M <- games_15M %>%
+  mutate(id = c("1M-5M"))
+
+games_15M_sum <- games_15M  %>%
+  select(metascore) %>%
+  summary()
+
+games_15M_sum <- games_15M_sum %>%
+  as.data.frame.matrix() %>%
+  separate(`  metascore`, into = c("stats", "1M-5M"), sep = ":")
+
+# >1M
+owners_groups_1M <- filter(owners_groups, n > 350)
+
+owners_cat_1 <- owners_groups_1M$owners
+
+games_1M <- filter(games, owners %in% owners_cat_1)
+
+games_1M <- games_1M %>%
+  mutate(id = c("<1M"))
+
+games_1M_sum <- games_1M  %>%
+  select(metascore) %>%
+  summary()
+
+games_1M_sum <- games_1M_sum %>%
+  as.data.frame.matrix() %>%
+  separate(`  metascore`, into = c("stats", "<1M"), sep = ":")
+
+# Joining datasets
+
+games_owner_id <- rbind(games_20M, games_10M, games_510M, games_15M, games_1M)
+```
+
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+games_sum <- games_20M_sum %>%
+  mutate(stats = c("Min.", "1st Qu.", "Median", "Mean", "3rd Qu.", "Max.", "NA's"))
+
+games_sum['10M-20M']= games_10M_sum['10M-20M'] 
+games_sum['5M-10M']= games_510M_sum['5M-10M']  
+games_sum['1M-5M']= games_15M_sum['1M-5M']  
+games_sum['<1M']= games_1M_sum['<1M']  
+```
+
+<div class = "row">
+<div class = "col-md-5">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+kable(games_sum) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+```
+
+</div>
+<div class = "col-md-7">
+``` {r, message = FALSE, warning = FALSE, echo = FALSE, results='asis'}
+games_owner_id %>%
+  select(id, metascore) %>%
+  filter(!is.na(metascore)) %>%
+
+  ggplot(aes(x = reorder(id, metascore, FUN = median), y = metascore)) +
+  geom_boxplot() +
+  ggtitle("Metascore by Number of Owners") +
+  labs(x = "Number of Owners", y="Metascore")
+```
+</div>
+</div>
+
+#### Takeaways
+
+When looking at the boxplots, we can see that the number of owners increase, the smaller the spread of metascores the games have and, in general, have higher metascores as well. This intuitively makes sense because in order for a game to be very successful, it has to cater to a diverse set of players, as well as garner high reviews from both critics and players. 
+
+Interestingly enough, the highest rated game (seen in the <1M) is not owned by the most amount of people. This might be due to the fact the game is relatively unknown and has yet to be discovered by the general masses. 
+
+<br>
+
+### Conclusion/Next Steps
+There are many potential next steps we could take. I think that one interesting next step would be integrate Twitch (popular videogame streaming platform) data with the Steam data. This would allow me to explore which Steam games are the most popular among livestreamers, how these Steam games trend / perform on the Steam platform or looking at whether or not if introduction of the game on Twitch helped with its popularity on Steam.
+
+
